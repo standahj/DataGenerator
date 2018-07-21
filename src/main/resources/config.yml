@@ -1,0 +1,33 @@
+TRUNCATE:        10000
+MAX_EVENTS:                -1  # -1 for all events
+EVENT_BREAKER:       !!null # Event End # \x0a{2}
+LINE_BREAKER:       ([\r\n]+)
+LINE_BREAKER_LOOKBEHIND:   10000
+SHOULD_LINEMERGE:      true
+BREAK_ONLY_BEFORE_DATE:    true
+#
+patternValuesList:
+#
+# Windows Log
+#
+  - NAME: Windows Update Log
+# detect the event identifier on the line (multiple matches for merged line possible)
+    BREAK_ONLY_BEFORE:      \d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}:\d{2}:\d{3}\s+(\d+\s+\w+\s+\w+)
+# detect event identifier change
+    MUST_BREAK_AFTER:      \d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}:\d{2}:\d{3}\s+(\d+\s+\w+\s+)(\w+)((?:(?!\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}:\d{2}:\d{3}\s+\1).*)\1)(?:(?!\2).)
+# ensure that the same type of event identifier causes event continuation
+    MUST_NOT_BREAK_AFTER:  \d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}:\d{2}:\d{3}\s+(\d+\s+\w+\s+)(\w+)((?:(?!\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}:\d{2}:\d{3}\s+\1).*)\1)\2
+#  'Report' event use PT subtype as event continuation line, so do not start new event for PT
+    MUST_NOT_BREAK_BEFORE:  \d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}:\d{2}:\d{3}\s+(\d+\s+\w+\s+PT)
+    HEADER_PATTERN:   "([\\w]+)=([^\\n]+)\\n"
+#
+# oracle_audit_log
+#
+# detect the event identifier on the line (multiple matches for merged line possible)
+  - NAME: Oracle Audit Log
+    BREAK_ONLY_BEFORE:      \w{3}\s+\w{3}\s+\d{1,2}\s+\d{2}:\d{2}:\d{2}\s+\d{4}\s+[\+-]\d{2}:\d{2}
+    MUST_BREAK_AFTER:      !!null
+    MUST_NOT_BREAK_AFTER:  !!null
+    MUST_NOT_BREAK_BEFORE:  !!null
+    HEADER_PATTERN:           "[\\r\\n]*([\\s\\w\\$]+):\\[*\\d*\\]*\\s+[\\']([^\\']+)[\\']"
+
