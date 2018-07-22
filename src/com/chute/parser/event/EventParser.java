@@ -1,5 +1,11 @@
 package com.chute.parser.event;
 
+import com.chute.parser.event.config.EventParserConfig;
+import org.apache.flume.Event;
+import org.apache.flume.event.EventBuilder;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
 import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.nio.charset.Charset;
@@ -10,45 +16,59 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.BlockingQueue;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-
-import com.chute.parser.event.config.EventParserConfig;
-
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
-
-import org.apache.flume.Event;
-import org.apache.flume.event.EventBuilder;
 
 public class EventParser {
 
 	private enum BREAK_TYPE { BEFORE, AFTER };
 	private static Logger logger = LoggerFactory.getLogger(EventParser.class);
 	private static int logLevel = 0;  // set to 1 to enable debug output to console
+	EventParserConfig eventParserConfig = EventParserConfig.getInstance();
 
-	private Pattern eventBreakerPattern = EventParserConfig.EVENT_BREAKER != null ? Pattern.compile(EventParserConfig.EVENT_BREAKER, Pattern.DOTALL) : null;
-	private Pattern lineBreakerPattern = Pattern.compile(EventParserConfig.LINE_BREAKER, Pattern.DOTALL);
-	private Pattern breakOnlyBeforePattern = EventParserConfig.get("BREAK_ONLY_BEFORE") != null ? Pattern.compile(EventParserConfig.get("BREAK_ONLY_BEFORE"), Pattern.DOTALL) : null;
-	private Pattern mustBreakAfterPattern = EventParserConfig.get("MUST_BREAK_AFTER") != null ? Pattern.compile(EventParserConfig.get("MUST_BREAK_AFTER"), Pattern.DOTALL) : null;
-	private Pattern mustNotBreakAfterPattern = EventParserConfig.get("MUST_NOT_BREAK_AFTER") != null ? Pattern.compile(EventParserConfig.get("MUST_NOT_BREAK_AFTER"), Pattern.DOTALL) : null;
-	private Pattern mustNotBreakBeforePattern = EventParserConfig.get("MUST_NOT_BREAK_BEFORE") != null ? Pattern.compile(EventParserConfig.get("MUST_NOT_BREAK_BEFORE"), Pattern.DOTALL) : null;
-	private Pattern headerPattern = EventParserConfig.get("HEADER_PATTERN") != null ? Pattern.compile(EventParserConfig.get("HEADER_PATTERN"), Pattern.DOTALL) : null;
+	private Pattern eventBreakerPattern = eventParserConfig.getEVENT_BREAKER() != null ? Pattern.compile(eventParserConfig.getEVENT_BREAKER(), Pattern.DOTALL) : null;
+	private Pattern lineBreakerPattern = Pattern.compile(eventParserConfig.getLINE_BREAKER(), Pattern.DOTALL);
+
+	// these are initialized per selected config type
+	private Pattern breakOnlyBeforePattern = null;
+	private Pattern mustBreakAfterPattern = null;
+	private Pattern mustNotBreakAfterPattern = null;
+	private Pattern mustNotBreakBeforePattern = null;
+	private Pattern headerPattern = null;
 	
 	private String carryOverChunk = "";
 	private int lc = 0;
 	private String eventIdentifier = null;
 
 	public EventParser() {
-		LOG("eventBreakerPattern = "+NVL(eventBreakerPattern));
-		LOG("lineBreakerPattern = "+NVL(lineBreakerPattern));
-		LOG("breakOnlyBeforePattern = "+NVL(breakOnlyBeforePattern));
-		LOG("mustBreakAfterPattern = "+NVL(mustBreakAfterPattern));
-		LOG("mustNotBreakAfterPattern = "+NVL(mustNotBreakAfterPattern));
-		LOG("mustNotBreakBeforePattern = "+NVL(mustNotBreakBeforePattern));
-		LOG("headerPattern = "+NVL(headerPattern));
+	    init();
+	    info();
 	}
-	
+
+	public EventParser(String name) {
+	    eventParserConfig.setConfigurationName(name);
+	    init();
+	    info();
+	}
+
+	private void init() {
+        breakOnlyBeforePattern = eventParserConfig.get("BREAK_ONLY_BEFORE") != null ? Pattern.compile(eventParserConfig.get("BREAK_ONLY_BEFORE"), Pattern.DOTALL) : null;
+        mustBreakAfterPattern = eventParserConfig.get("MUST_BREAK_AFTER") != null ? Pattern.compile(eventParserConfig.get("MUST_BREAK_AFTER"), Pattern.DOTALL) : null;
+        mustNotBreakAfterPattern = eventParserConfig.get("MUST_NOT_BREAK_AFTER") != null ? Pattern.compile(eventParserConfig.get("MUST_NOT_BREAK_AFTER"), Pattern.DOTALL) : null;
+        mustNotBreakBeforePattern = eventParserConfig.get("MUST_NOT_BREAK_BEFORE") != null ? Pattern.compile(eventParserConfig.get("MUST_NOT_BREAK_BEFORE"), Pattern.DOTALL) : null;
+        headerPattern = eventParserConfig.get("HEADER_PATTERN") != null ? Pattern.compile(eventParserConfig.get("HEADER_PATTERN"), Pattern.DOTALL) : null;
+    }
+
+	private void info() {
+        LOG("eventBreakerPattern = "+NVL(eventBreakerPattern));
+        LOG("lineBreakerPattern = "+NVL(lineBreakerPattern));
+        LOG("breakOnlyBeforePattern = "+NVL(breakOnlyBeforePattern));
+        LOG("mustBreakAfterPattern = "+NVL(mustBreakAfterPattern));
+        LOG("mustNotBreakAfterPattern = "+NVL(mustNotBreakAfterPattern));
+        LOG("mustNotBreakBeforePattern = "+NVL(mustNotBreakBeforePattern));
+        LOG("headerPattern = "+NVL(headerPattern));
+    }
+
 	private String NVL(Pattern p) { return p != null ? p.pattern() : "null"; }
 	/**
 	 * Modified method that uses String input to which it applies RegExp to extract single/multiline 
@@ -69,7 +89,7 @@ public class EventParser {
 		}
 		Matcher lineBreakerMatcher = lineBreakerPattern.matcher(unprocessedData);
 		// If we wish to handle only single line events, it is the same as if we had event_breaker defined to be EOL char
-		if (lineBreakerPattern != null && !EventParserConfig.SHOULD_LINEMERGE) {
+		if (lineBreakerPattern != null && !eventParserConfig.isSHOULD_LINEMERGE()) {
 			return parseEvents(unprocessedData, lineBreakerMatcher, distributedQueue);
 		}
 
@@ -192,7 +212,7 @@ public class EventParser {
 	            					}
 	            				}
 	            			}
-	            			eventBody = eventBody.replaceAll(EventParserConfig.get("BREAK_ONLY_BEFORE"), eventIdentifierReplacement.toString());
+	            			eventBody = eventBody.replaceAll(eventParserConfig.get("BREAK_ONLY_BEFORE"), eventIdentifierReplacement.toString());
 	            		}
 	            		eventBody = eventBody.replaceAll("(?s)"+lineBreakReplacement+"$", ""); // remove last replacement
 	                    Event event = EventBuilder.withBody(eventBody, Charset.forName("UTF-8"));
@@ -227,15 +247,15 @@ public class EventParser {
             }
             if (breakPoints.size() > 0 && breakPosition < line.length() - 1) {
             	carryOverChunk = line.substring(breakPosition);
-            	if (carryOverChunk.length() > EventParserConfig.LINE_BREAKER_LOOKBEHIND) {
-            		carryOverChunk = carryOverChunk.substring(carryOverChunk.length()-EventParserConfig.LINE_BREAKER_LOOKBEHIND);
+            	if (carryOverChunk.length() > eventParserConfig.getLINE_BREAKER_LOOKBEHIND()) {
+            		carryOverChunk = carryOverChunk.substring(carryOverChunk.length()- eventParserConfig.getLINE_BREAKER_LOOKBEHIND());
             	}
             	LOG("CarryOver CHUNK: "+carryOverChunk);
             	line = "";
             	breakPoints.clear();
             }
             
-            if (EventParserConfig.MAX_EVENTS > 0 && numProcessed >= EventParserConfig.MAX_EVENTS) {
+            if (eventParserConfig.getMAX_EVENTS() > 0 && numProcessed >= eventParserConfig.getMAX_EVENTS()) {
             	break;
             }
             enterLoop = position < unprocessedData.length();
@@ -288,7 +308,7 @@ public class EventParser {
 		String line = "";
 		LOG("eventBreakerMatcher/parseEvents: "+(lc++)+" UNPROCESSED: [["+unprocessedData+"]]");
 		while (eventBreakerMatcher.find()) {
-            if (EventParserConfig.MAX_EVENTS >= 0 && numProcessed >= EventParserConfig.MAX_EVENTS) {
+            if (eventParserConfig.getMAX_EVENTS() >= 0 && numProcessed >= eventParserConfig.getMAX_EVENTS()) {
             	break;
             }
 			line = carryOverChunk + unprocessedData.substring(position, eventBreakerMatcher.start());
