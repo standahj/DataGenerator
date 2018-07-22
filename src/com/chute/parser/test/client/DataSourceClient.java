@@ -1,5 +1,7 @@
 package com.chute.parser.test.client;
 
+import com.chute.parser.event.output.LogData;
+
 import java.io.BufferedReader;
 import java.io.File;
 import java.io.FileOutputStream;
@@ -54,7 +56,9 @@ public class DataSourceClient {
 	public static void main(String[] args) {
 		String lbEndpoint = args != null && args.length > 1 ? args[1] : "localhost:8080";
 		boolean isFile = false;
-		if (lbEndpoint.startsWith("file:")){
+        boolean isJson = false;
+		if (lbEndpoint.startsWith("file:") || lbEndpoint.startsWith("json:")){
+		    isJson = lbEndpoint.startsWith("json:");
 			lbEndpoint = lbEndpoint.substring(5);
 			isFile = true;
 		} else {
@@ -104,6 +108,9 @@ public class DataSourceClient {
 			long repeat = 0L;
 			System.out.println("DataSourceClient: *********************** sending file: "+arg.getAbsolutePath()+" to: "+lbEndpoint);
 			OutputStream sink = isFile ? new FileOutputStream(out) : netCatSource.getOutputStream();
+			if (isJson) {
+			    sink.write("[\n".getBytes());
+            }
 			while (userInput) {
 				Date now = new Date();
 				try (BufferedReader logData = new BufferedReader(new FileReader(arg))) {
@@ -112,7 +119,16 @@ public class DataSourceClient {
 					while ((data = logData.readLine()) != null) {
 						try {
 						    if (repeat == 0L || (repeat > 0L && prologLength > 0 && count >= prologLength)) {
-                                sink.write((updateLine(data, now) + "\n").getBytes());
+						        String dataLine = updateLine(data, now);
+						        if (isJson) {
+						            dataLine = new LogData(arg.getName(), 1, 0,
+                                                arg.getName().replaceAll("\\.[^\\.]*$",""),
+                                            "TestDataGenerator", 1, dataLine, 0).toString();
+                                }
+                                if (isJson && (repeat+count > 0)) {
+						            sink.write(",".getBytes());
+                                }
+                                sink.write((dataLine + "\n").getBytes());
                                 sink.flush();
                             }
                             count++;
@@ -143,6 +159,10 @@ public class DataSourceClient {
 				}
 				repeat++;
 			}
+            if (isJson) {
+                sink.write("]\n".getBytes());
+            }
+            sink.close();
 		} catch (Exception se) {
 			Logger.getLogger(DataSourceClient.class.getName()).log(Level.SEVERE, "DataSourceClient error while sending log data", se);
 			System.out.println("DatasourceClient: *********************** Exception: "+se.getMessage());
